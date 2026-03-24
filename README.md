@@ -1,3 +1,2 @@
-“ImageGhost — Multi-Image Fingerprint Remover
-Scrubs EXIF, GPS, timestamps, metadata from 60-100+ files in one go. Core done (Python), next: Golang port + GUI + batch AES. For pentesters who hate trails.
-Status: Private dev. Not public yet.”
+Professional Multi-Image Fingerprint Scrubber for Privacy & Red Team Operations.
+4-layer metadata removal, AES-256-GCM encryption, 9 themes, CLI + Web Dashboard, 46+ formats
