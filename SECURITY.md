@@ -20,7 +20,7 @@ We take security vulnerabilities seriously. If you discover a security issue in 
 Instead, please report security issues via:
 
 1. **GitHub Security Advisories** (Preferred):
-   - Go to: https://github.com/yourusername/ImageGhost/security/advisories
+   - Go to: https://github.com/0xArchCrawler/ImageGhost/security/advisories
    - Click "Report a vulnerability"
    - Fill in the vulnerability details
 
