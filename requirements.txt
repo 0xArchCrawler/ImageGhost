@@ -1,0 +1,13 @@
+Pillow>=10.0.0
+cryptography>=41.0.0
+PyQt5>=5.15.9
+tqdm>=4.66.0
+requests>=2.31.0
+python-magic>=0.4.27
+stegdetect>=0.1.0
+pycryptodome>=3.19.0
+argon2-cffi>=23.1.0
+flask>=3.0.0
+flask-socketio>=5.3.0
+python-socketio>=5.10.0
+werkzeug>=3.0.0

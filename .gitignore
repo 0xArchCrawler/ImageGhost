@@ -1,0 +1,102 @@
+# ImageGhost .gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Output directories (cleaned images, encrypted files)
+*_cleaned/
+*_encrypted/
+*_final_encrypted/
+*_temp_scrubbed/
+output/
+test_output/
+
+# Logs
+*.log
+logs/
+web/logs/
+
+# Temporary files
+*.tmp
+*.bak
+*.orig
+.~lock.*
+
+# Encrypted files (don't commit encrypted test data)
+*.encrypted
+*.enc
+
+# OS files
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# Project specific
+.env
+.env.local
+config.local.py
+secrets.py
+
+# Test images (don't commit test data)
+test_images/
+sample_images/
+*.test.jpg
+*.test.png
+
+# Flask
+instance/
+.webassets-cache
+
+# Coverage reports
+coverage.xml
+*.cover
+.hypothesis/
+
+# Type checking
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
