@@ -837,6 +837,41 @@ body {
     font-style: italic;
 }
 
+/* Metadata Display Labels and Tags */
+.meta-label {
+    display: inline-block;
+    min-width: 120px;
+    color: var(--arch-accent);
+    font-weight: 600;
+    margin-right: 10px;
+}
+
+.meta-tag {
+    color: var(--arch-text-secondary);
+    opacity: 0.8;
+}
+
+.meta-sensitive {
+    color: var(--arch-error);
+    font-weight: 600;
+}
+
+.meta-success {
+    color: var(--arch-success);
+    font-weight: 600;
+}
+
+.meta-warning {
+    color: var(--arch-warning);
+    font-weight: 600;
+}
+
+.meta-dim {
+    color: var(--arch-text-secondary);
+    opacity: 0.6;
+    font-style: italic;
+}
+
 /* Scrollbar Styling */
 ::-webkit-scrollbar {
     width: 10px;
