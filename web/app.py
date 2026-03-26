@@ -113,21 +113,25 @@ def run_scrub_job(job_id, input_files, output_dir, options):
                 if success:
                     results['success'].append(filename)
 
-                    # Emit metadata analysis
-                    original_metadata = info.get('original_metadata', {})
+                    # Emit detailed metadata analysis
+                    before = info.get('before', {})
+                    after = info.get('after', {})
                     bytes_removed = info.get('bytes_removed', 0)
+                    exif_removed = info.get('exif_removed', 0)
 
                     socketio.emit('metadata_analysis', {
                         'job_id': job_id,
                         'filename': filename,
-                        'original_metadata': original_metadata,
-                        'bytes_removed': bytes_removed
+                        'before': before,
+                        'after': after,
+                        'bytes_removed': bytes_removed,
+                        'exif_removed': exif_removed
                     })
 
                     socketio.emit('log', {
                         'job_id': job_id,
                         'level': 'success',
-                        'message': f"cleaned: {filename} | removed {bytes_removed:,} bytes"
+                        'message': f"cleaned: {filename} | removed {exif_removed} EXIF fields, {bytes_removed:,} bytes"
                     })
                 else:
                     results['failed'].append(filename)
