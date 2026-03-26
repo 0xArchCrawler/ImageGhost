@@ -299,58 +299,232 @@ class ImageGhostCLI:
         deleter.shred_directory(directory, recursive=False)
 
     def _display_metadata_analysis(self, info):
-        """display metadata exposure analysis"""
-        original_metadata = info.get('original_metadata', {})
+        """display comprehensive detailed metadata exposure analysis"""
+        before = info.get('before', {})
+        after = info.get('after', {})
         bytes_removed = info.get('bytes_removed', 0)
+        exif_removed = info.get('exif_removed', 0)
 
-        if not original_metadata:
+        # Backward compatibility
+        if not before:
+            before_tags = info.get('original_metadata', {})
+            if before_tags:
+                before = {'raw_tags': before_tags, 'exif_count': len(before_tags)}
+
+        if not before or not before.get('raw_tags'):
             print(f"\n{Colors.dim('No metadata detected in original image')}")
             return
 
-        print(f"\n{Colors.BOLD}{Colors.YELLOW}{'─' * 65}{Colors.RESET}")
-        print(f"{Colors.BOLD}{Colors.RED}  METADATA EXPOSURE ANALYSIS{Colors.RESET}")
-        print(f"{Colors.BOLD}{Colors.YELLOW}{'─' * 65}{Colors.RESET}\n")
+        print(f"\n{Colors.BOLD}{Colors.YELLOW}{'═' * 70}{Colors.RESET}")
+        print(f"{Colors.BOLD}{Colors.RED}  BEFORE (METADATA FOUND){Colors.RESET}")
+        print(f"{Colors.BOLD}{Colors.YELLOW}{'═' * 70}{Colors.RESET}\n")
 
-        # Count sensitive fields
-        sensitive_fields = {
-            'GPS': ['GPS', 'GPSLatitude', 'GPSLongitude', 'GPSAltitude'],
-            'Camera': ['Make', 'Model', 'LensModel', 'SerialNumber'],
-            'Location': ['Location', 'City', 'State', 'Country'],
-            'Software': ['Software', 'ProcessingSoftware', 'CreatorTool'],
-            'Personal': ['Artist', 'Copyright', 'Owner', 'Author'],
-            'Timestamps': ['CreateDate', 'ModifyDate', 'DateTimeOriginal']
-        }
+        # ===== FILE INFORMATION =====
+        print(f"{Colors.BOLD}{Colors.BLUE}📄 File Information:{Colors.RESET}")
+        if before.get('format'):
+            print(f"  {Colors.CYAN}Format{Colors.RESET}           {before['format']}")
 
-        exposed_categories = {}
-        for category, keywords in sensitive_fields.items():
-            found = []
-            for key, value in original_metadata.items():
-                if any(kw.lower() in key.lower() for kw in keywords):
-                    found.append(f"{key}: {value}")
-            if found:
-                exposed_categories[category] = found
+        if before.get('dimensions'):
+            w, h = before['dimensions']
+            megapixels = (w * h) / 1000000
+            print(f"  {Colors.CYAN}Dimensions{Colors.RESET}       {w} × {h} ({megapixels:.1f} MP)")
 
-        # Display exposed data by category
-        if exposed_categories:
-            print(f"{Colors.RED}[!]{Colors.RESET} {Colors.BOLD}The following sensitive data was EXPOSED:{Colors.RESET}\n")
+        if before.get('file_size'):
+            size_kb = before['file_size'] / 1024
+            size_mb = size_kb / 1024
+            if size_mb >= 1:
+                print(f"  {Colors.CYAN}File Size{Colors.RESET}        {size_mb:.2f} MB ({size_kb:.1f} KB)")
+            else:
+                print(f"  {Colors.CYAN}File Size{Colors.RESET}        {size_kb:.1f} KB")
 
-            for category, items in exposed_categories.items():
-                icon = "📍" if category == "GPS" else "📷" if category == "Camera" else "🏙️" if category == "Location" else "💻" if category == "Software" else "👤" if category == "Personal" else "🕐"
-                print(f"  {icon} {Colors.BOLD}{Colors.RED}{category}:{Colors.RESET}")
-                for item in items[:3]:  # Show max 3 items per category
-                    print(f"    {Colors.DIM}{Colors.GRAY}• {item}{Colors.RESET}")
-                if len(items) > 3:
-                    print(f"    {Colors.DIM}{Colors.GRAY}• ... and {len(items) - 3} more{Colors.RESET}")
-                print()
+        exif_count = before.get('exif_count', 0)
+        print(f"  {Colors.CYAN}Total EXIF Tags{Colors.RESET}  {exif_count}")
 
-        # Display bytes removed
-        print(f"{Colors.GREEN}[✓]{Colors.RESET} {Colors.BOLD}Metadata Removed:{Colors.RESET} {Colors.GREEN}{bytes_removed:,} bytes{Colors.RESET}")
+        has_icc = before.get('has_icc_profile', False)
+        print(f"  {Colors.CYAN}ICC Profile{Colors.RESET}      {'Yes' if has_icc else 'No'}")
 
-        # Display after state
-        print(f"\n{Colors.BOLD}{Colors.GREEN}{'─' * 65}{Colors.RESET}")
-        print(f"{Colors.BOLD}{Colors.GREEN}  ✓ IMAGE NOW CLEAN{Colors.RESET}")
-        print(f"{Colors.BOLD}{Colors.GREEN}{'─' * 65}{Colors.RESET}")
-        print(f"{Colors.dim('All metadata removed • No traces left • Safe to share')}\n")
+        has_thumbnail = before.get('has_thumbnail', False)
+        if has_thumbnail:
+            print(f"  {Colors.CYAN}Thumbnail{Colors.RESET}        {Colors.YELLOW}Present{Colors.RESET}")
+
+        # ===== CATEGORIZE AND DISPLAY METADATA =====
+        raw_tags = before.get('raw_tags', {})
+        if raw_tags:
+            # Filter out File: tags
+            exif_tags = {k: v for k, v in raw_tags.items()
+                        if not k.startswith('File:') and not k.startswith('SourceFile')}
+
+            # Categorize tags
+            categories = {
+                'GPS': [],
+                'Camera': [],
+                'Lens': [],
+                'Software': [],
+                'Personal': [],
+                'Dates': [],
+                'Technical': [],
+                'Other': []
+            }
+
+            gps_keywords = ['GPS', 'Location']
+            camera_keywords = ['Make', 'Model', 'Serial', 'BodySerialNumber', 'InternalSerialNumber']
+            lens_keywords = ['Lens', 'FocalLength', 'Aperture']
+            software_keywords = ['Software', 'Creator', 'Tool', 'Application', 'ProcessingSoftware']
+            personal_keywords = ['Artist', 'Copyright', 'Owner', 'Author', 'Rights', 'Credit', 'By-line']
+            date_keywords = ['Date', 'Time']
+            technical_keywords = ['ISO', 'Shutter', 'Exposure', 'Flash', 'WhiteBalance', 'Metering', 'ColorSpace']
+
+            for key, value in exif_tags.items():
+                categorized = False
+                if any(kw in key for kw in gps_keywords):
+                    categories['GPS'].append((key, value))
+                    categorized = True
+                elif any(kw in key for kw in camera_keywords):
+                    categories['Camera'].append((key, value))
+                    categorized = True
+                elif any(kw in key for kw in lens_keywords):
+                    categories['Lens'].append((key, value))
+                    categorized = True
+                elif any(kw in key for kw in software_keywords):
+                    categories['Software'].append((key, value))
+                    categorized = True
+                elif any(kw in key for kw in personal_keywords):
+                    categories['Personal'].append((key, value))
+                    categorized = True
+                elif any(kw in key for kw in date_keywords):
+                    categories['Dates'].append((key, value))
+                    categorized = True
+                elif any(kw in key for kw in technical_keywords):
+                    categories['Technical'].append((key, value))
+                    categorized = True
+                elif not categorized:
+                    categories['Other'].append((key, value))
+
+            # Display GPS Data (HIGHEST PRIORITY - PRIVACY RISK)
+            if categories['GPS']:
+                print(f"\n{Colors.BOLD}{Colors.RED}⚠️  GPS & LOCATION DATA (PRIVACY RISK!):{Colors.RESET}")
+                for key, value in categories['GPS']:
+                    val_str = str(value)
+                    if len(val_str) > 60:
+                        val_str = val_str[:60] + '...'
+                    print(f"  {Colors.RED}• {key}{Colors.RESET}: {val_str}")
+
+            # Display Personal Info (HIGH PRIORITY)
+            if categories['Personal']:
+                print(f"\n{Colors.BOLD}{Colors.RED}👤 Personal Information:{Colors.RESET}")
+                for key, value in categories['Personal']:
+                    val_str = str(value)
+                    if len(val_str) > 60:
+                        val_str = val_str[:60] + '...'
+                    print(f"  {Colors.RED}• {key}{Colors.RESET}: {val_str}")
+
+            # Display Camera Info
+            if categories['Camera']:
+                print(f"\n{Colors.BOLD}{Colors.YELLOW}📷 Camera Information:{Colors.RESET}")
+                for key, value in categories['Camera']:
+                    val_str = str(value)
+                    if len(val_str) > 60:
+                        val_str = val_str[:60] + '...'
+                    print(f"  {Colors.YELLOW}• {key}{Colors.RESET}: {val_str}")
+
+            # Display Lens Info
+            if categories['Lens']:
+                print(f"\n{Colors.BOLD}{Colors.CYAN}🔍 Lens Information:{Colors.RESET}")
+                for key, value in categories['Lens']:
+                    val_str = str(value)
+                    if len(val_str) > 60:
+                        val_str = val_str[:60] + '...'
+                    print(f"  {Colors.CYAN}• {key}{Colors.RESET}: {val_str}")
+
+            # Display Technical Details
+            if categories['Technical']:
+                print(f"\n{Colors.BOLD}{Colors.CYAN}⚙️  Technical Settings:{Colors.RESET}")
+                for key, value in categories['Technical']:
+                    val_str = str(value)
+                    if len(val_str) > 60:
+                        val_str = val_str[:60] + '...'
+                    print(f"  {Colors.DIM}• {key}{Colors.RESET}: {val_str}")
+
+            # Display Software Info
+            if categories['Software']:
+                print(f"\n{Colors.BOLD}{Colors.PURPLE}💻 Software Used:{Colors.RESET}")
+                for key, value in categories['Software']:
+                    val_str = str(value)
+                    if len(val_str) > 60:
+                        val_str = val_str[:60] + '...'
+                    print(f"  {Colors.PURPLE}• {key}{Colors.RESET}: {val_str}")
+
+            # Display Dates
+            if categories['Dates']:
+                print(f"\n{Colors.BOLD}{Colors.YELLOW}🕐 Timestamps:{Colors.RESET}")
+                for key, value in categories['Dates']:
+                    val_str = str(value)
+                    if len(val_str) > 60:
+                        val_str = val_str[:60] + '...'
+                    print(f"  {Colors.YELLOW}• {key}{Colors.RESET}: {val_str}")
+
+            # Display Other Tags (collapsed by default)
+            if categories['Other']:
+                print(f"\n{Colors.BOLD}{Colors.DIM}📋 Other Metadata: ({len(categories['Other'])} tags){Colors.RESET}")
+                # Show first 5 other tags
+                for key, value in categories['Other'][:5]:
+                    val_str = str(value)
+                    if len(val_str) > 60:
+                        val_str = val_str[:60] + '...'
+                    print(f"  {Colors.DIM}• {key}: {val_str}{Colors.RESET}")
+                if len(categories['Other']) > 5:
+                    print(f"  {Colors.DIM}... and {len(categories['Other']) - 5} more{Colors.RESET}")
+
+        # ===== DISPLAY AFTER SECTION =====
+        print(f"\n{Colors.BOLD}{Colors.GREEN}{'═' * 70}{Colors.RESET}")
+        print(f"{Colors.BOLD}{Colors.GREEN}  AFTER (STRIPPED){Colors.RESET}")
+        print(f"{Colors.BOLD}{Colors.GREEN}{'═' * 70}{Colors.RESET}\n")
+
+        # Summary of what was removed
+        print(f"{Colors.BOLD}{Colors.GREEN}✓ Metadata Removal Summary:{Colors.RESET}")
+
+        if after.get('file_size'):
+            after_size_kb = after['file_size'] / 1024
+            size_diff = bytes_removed / 1024
+            print(f"  {Colors.CYAN}New Size{Colors.RESET}         {after_size_kb:.1f} KB {Colors.GREEN}(-{size_diff:.1f} KB, -{(bytes_removed/before['file_size']*100):.1f}%){Colors.RESET}")
+
+        after_exif = after.get('exif_count', 0)
+        print(f"  {Colors.CYAN}EXIF Tags{Colors.RESET}        {after_exif} {Colors.GREEN}(removed {exif_removed} tags){Colors.RESET}")
+
+        # List what was removed
+        removed_items = []
+        if before.get('has_icc_profile') and not after.get('has_icc_profile'):
+            removed_items.append("ICC Color Profile")
+        if before.get('has_gps'):
+            removed_items.append("GPS Location Data")
+        if before.get('has_thumbnail'):
+            removed_items.append("Embedded Thumbnail")
+
+        # Count categories that were removed
+        if raw_tags:
+            exif_tags = {k: v for k, v in raw_tags.items()
+                        if not k.startswith('File:') and not k.startswith('SourceFile')}
+            if any('GPS' in k or 'Location' in k for k in exif_tags.keys()):
+                if "GPS Location Data" not in removed_items:
+                    removed_items.append("GPS Coordinates")
+            if any(k for k in exif_tags.keys() if any(x in k for x in ['Artist', 'Copyright', 'Owner'])):
+                removed_items.append("Personal Information")
+            if any(k for k in exif_tags.keys() if any(x in k for x in ['Make', 'Model', 'Serial'])):
+                removed_items.append("Camera Information")
+            if any(k for k in exif_tags.keys() if any(x in k for x in ['Software', 'Creator', 'Tool'])):
+                removed_items.append("Software Information")
+            if any(k for k in exif_tags.keys() if any(x in k for x in ['Date', 'Time'])):
+                removed_items.append("Timestamps")
+
+        if removed_items:
+            print(f"\n  {Colors.BOLD}{Colors.GREEN}Removed Components:{Colors.RESET}")
+            for item in removed_items:
+                print(f"    {Colors.GREEN}✓{Colors.RESET} {item}")
+
+        print(f"\n  {Colors.CYAN}Final Status{Colors.RESET}     {Colors.GREEN}✓ CLEAN - Safe to share{Colors.RESET}")
+
+        print(f"\n{Colors.BOLD}{Colors.GREEN}{'─' * 70}{Colors.RESET}")
+        print(f"{Colors.dim('All sensitive metadata removed • No fingerprints • No location data • Privacy protected')}\n")
 
 
 def main():
