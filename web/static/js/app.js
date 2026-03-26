@@ -489,13 +489,13 @@ function addLog(level, message) {
     logOutput.scrollTop = logOutput.scrollHeight;
 }
 
-// Display metadata analysis (before/after comparison)
+// Display metadata analysis (before/after comparison) - COMPREHENSIVE
 function displayMetadataAnalysis(data) {
     const logOutput = document.getElementById('log-output');
-    const { filename, original_metadata, bytes_removed } = data;
+    const { filename, before, after, bytes_removed, exif_removed } = data;
 
     // Check if there was any metadata
-    if (!original_metadata || Object.keys(original_metadata).length === 0) {
+    if (!before || !before.raw_tags || Object.keys(before.raw_tags).length === 0) {
         const noMetaEntry = document.createElement('div');
         noMetaEntry.className = 'log-entry info metadata-info';
         noMetaEntry.innerHTML = `
@@ -511,30 +511,7 @@ function displayMetadataAnalysis(data) {
     const metadataCard = document.createElement('div');
     metadataCard.className = 'log-entry metadata-analysis';
 
-    // Categorize sensitive fields
-    const sensitiveFields = {
-        'GPS': ['GPS', 'GPSLatitude', 'GPSLongitude', 'GPSAltitude', 'GPSPosition'],
-        'Camera': ['Make', 'Model', 'LensModel', 'SerialNumber', 'LensSerialNumber'],
-        'Location': ['Location', 'City', 'State', 'Country', 'LocationCreated'],
-        'Software': ['Software', 'ProcessingSoftware', 'CreatorTool', 'HistorySoftwareAgent'],
-        'Personal': ['Artist', 'Copyright', 'Owner', 'Author', 'Creator', 'Rights'],
-        'Timestamps': ['CreateDate', 'ModifyDate', 'DateTimeOriginal', 'DateCreated']
-    };
-
-    const exposedCategories = {};
-    for (const [category, keywords] of Object.entries(sensitiveFields)) {
-        const found = [];
-        for (const [key, value] of Object.entries(original_metadata)) {
-            if (keywords.some(kw => key.toLowerCase().includes(kw.toLowerCase()))) {
-                found.push({ key, value });
-            }
-        }
-        if (found.length > 0) {
-            exposedCategories[category] = found;
-        }
-    }
-
-    // Build HTML for metadata display
+    // Build HTML for comprehensive metadata display
     let metadataHTML = `
         <div class="metadata-header">
             <span class="metadata-filename">📄 ${filename}</span>
@@ -542,41 +519,219 @@ function displayMetadataAnalysis(data) {
         <div class="metadata-content">
     `;
 
-    if (Object.keys(exposedCategories).length > 0) {
-        metadataHTML += '<div class="metadata-before"><strong>⚠️ BEFORE - METADATA EXPOSED:</strong><br>';
+    // BEFORE Section
+    metadataHTML += '<div class="metadata-before"><strong>⚠️ BEFORE (METADATA FOUND)</strong><br><br>';
 
-        for (const [category, items] of Object.entries(exposedCategories)) {
-            const icon = category === 'GPS' ? '📍' :
-                        category === 'Camera' ? '📷' :
-                        category === 'Location' ? '🏙️' :
-                        category === 'Software' ? '💻' :
-                        category === 'Personal' ? '👤' : '🕐';
-
-            metadataHTML += `<div class="metadata-category"><strong>${icon} ${category}:</strong><br>`;
-
-            items.slice(0, 3).forEach(item => {
-                let displayValue = String(item.value);
-                if (displayValue.length > 50) {
-                    displayValue = displayValue.substring(0, 50) + '...';
-                }
-                metadataHTML += `  • ${item.key}: ${displayValue}<br>`;
-            });
-
-            if (items.length > 3) {
-                metadataHTML += `  • ... and ${items.length - 3} more<br>`;
-            }
-            metadataHTML += '</div>';
+    // File Information Section
+    metadataHTML += '<strong>📄 File Information:</strong><br>';
+    if (before.format) {
+        metadataHTML += `<span class="meta-label">Format</span> ${before.format}<br>`;
+    }
+    if (before.dimensions) {
+        const megapixels = (before.dimensions[0] * before.dimensions[1] / 1000000).toFixed(1);
+        metadataHTML += `<span class="meta-label">Dimensions</span> ${before.dimensions[0]} × ${before.dimensions[1]} (${megapixels} MP)<br>`;
+    }
+    if (before.file_size) {
+        const sizeKB = (before.file_size / 1024).toFixed(1);
+        const sizeMB = (before.file_size / 1024 / 1024).toFixed(2);
+        if (sizeMB >= 1) {
+            metadataHTML += `<span class="meta-label">File Size</span> ${sizeMB} MB (${sizeKB} KB)<br>`;
+        } else {
+            metadataHTML += `<span class="meta-label">File Size</span> ${sizeKB} KB<br>`;
         }
-        metadataHTML += '</div>';
+    }
+    metadataHTML += `<span class="meta-label">Total EXIF Tags</span> ${before.exif_count || 0}<br>`;
+    metadataHTML += `<span class="meta-label">ICC Profile</span> ${before.has_icc_profile ? 'Yes' : 'No'}<br>`;
+    if (before.has_thumbnail) {
+        metadataHTML += `<span class="meta-label">Thumbnail</span> <span class="meta-warning">Present</span><br>`;
     }
 
-    metadataHTML += `
-        <div class="metadata-after">
-            <strong>✓ AFTER - IMAGE NOW CLEAN:</strong><br>
-            • Removed ${bytes_removed.toLocaleString()} bytes of metadata<br>
-            • No traces left • Safe to share
-        </div>
-    `;
+    // Categorize EXIF tags
+    if (before.raw_tags) {
+        const rawTags = before.raw_tags;
+        const exifTags = Object.entries(rawTags).filter(([key]) =>
+            !key.startsWith('File:') && !key.startsWith('SourceFile')
+        );
+
+        // Define categories
+        const categories = {
+            GPS: [],
+            Personal: [],
+            Camera: [],
+            Lens: [],
+            Technical: [],
+            Software: [],
+            Dates: [],
+            Other: []
+        };
+
+        // Categorize each tag
+        exifTags.forEach(([key, value]) => {
+            if (key.includes('GPS') || key.includes('Location')) {
+                categories.GPS.push([key, value]);
+            } else if (key.includes('Artist') || key.includes('Copyright') || key.includes('Owner') ||
+                       key.includes('Author') || key.includes('Rights') || key.includes('Credit')) {
+                categories.Personal.push([key, value]);
+            } else if (key.includes('Make') || key.includes('Model') || key.includes('Serial') ||
+                       key.includes('BodySerial') || key.includes('InternalSerial')) {
+                categories.Camera.push([key, value]);
+            } else if (key.includes('Lens') || key.includes('FocalLength') || key.includes('Aperture')) {
+                categories.Lens.push([key, value]);
+            } else if (key.includes('ISO') || key.includes('Shutter') || key.includes('Exposure') ||
+                       key.includes('Flash') || key.includes('WhiteBalance') || key.includes('Metering') ||
+                       key.includes('ColorSpace')) {
+                categories.Technical.push([key, value]);
+            } else if (key.includes('Software') || key.includes('Creator') || key.includes('Tool') ||
+                       key.includes('Application') || key.includes('Processing')) {
+                categories.Software.push([key, value]);
+            } else if (key.includes('Date') || key.includes('Time')) {
+                categories.Dates.push([key, value]);
+            } else {
+                categories.Other.push([key, value]);
+            }
+        });
+
+        // Display GPS Data (HIGHEST PRIORITY)
+        if (categories.GPS.length > 0) {
+            metadataHTML += '<br><strong class="meta-sensitive">⚠️ GPS & LOCATION DATA (PRIVACY RISK!):</strong><br>';
+            categories.GPS.forEach(([key, value]) => {
+                let valStr = String(value);
+                if (valStr.length > 50) valStr = valStr.substring(0, 50) + '...';
+                metadataHTML += `<span class="meta-sensitive">• ${key}</span>: ${valStr}<br>`;
+            });
+        }
+
+        // Display Personal Information
+        if (categories.Personal.length > 0) {
+            metadataHTML += '<br><strong class="meta-sensitive">👤 Personal Information:</strong><br>';
+            categories.Personal.forEach(([key, value]) => {
+                let valStr = String(value);
+                if (valStr.length > 50) valStr = valStr.substring(0, 50) + '...';
+                metadataHTML += `<span class="meta-sensitive">• ${key}</span>: ${valStr}<br>`;
+            });
+        }
+
+        // Display Camera Information
+        if (categories.Camera.length > 0) {
+            metadataHTML += '<br><strong class="meta-warning">📷 Camera Information:</strong><br>';
+            categories.Camera.forEach(([key, value]) => {
+                let valStr = String(value);
+                if (valStr.length > 50) valStr = valStr.substring(0, 50) + '...';
+                metadataHTML += `<span class="meta-warning">• ${key}</span>: ${valStr}<br>`;
+            });
+        }
+
+        // Display Lens Information
+        if (categories.Lens.length > 0) {
+            metadataHTML += '<br><strong>🔍 Lens Information:</strong><br>';
+            categories.Lens.forEach(([key, value]) => {
+                let valStr = String(value);
+                if (valStr.length > 50) valStr = valStr.substring(0, 50) + '...';
+                metadataHTML += `<span class="meta-tag">• ${key}</span>: ${valStr}<br>`;
+            });
+        }
+
+        // Display Technical Settings
+        if (categories.Technical.length > 0) {
+            metadataHTML += '<br><strong>⚙️ Technical Settings:</strong><br>';
+            categories.Technical.forEach(([key, value]) => {
+                let valStr = String(value);
+                if (valStr.length > 50) valStr = valStr.substring(0, 50) + '...';
+                metadataHTML += `<span class="meta-tag">• ${key}</span>: ${valStr}<br>`;
+            });
+        }
+
+        // Display Software Information
+        if (categories.Software.length > 0) {
+            metadataHTML += '<br><strong>💻 Software Used:</strong><br>';
+            categories.Software.forEach(([key, value]) => {
+                let valStr = String(value);
+                if (valStr.length > 50) valStr = valStr.substring(0, 50) + '...';
+                metadataHTML += `<span class="meta-tag">• ${key}</span>: ${valStr}<br>`;
+            });
+        }
+
+        // Display Timestamps
+        if (categories.Dates.length > 0) {
+            metadataHTML += '<br><strong>🕐 Timestamps:</strong><br>';
+            categories.Dates.forEach(([key, value]) => {
+                let valStr = String(value);
+                if (valStr.length > 50) valStr = valStr.substring(0, 50) + '...';
+                metadataHTML += `<span class="meta-tag">• ${key}</span>: ${valStr}<br>`;
+            });
+        }
+
+        // Display Other Tags (collapsed)
+        if (categories.Other.length > 0) {
+            metadataHTML += `<br><strong class="meta-dim">📋 Other Metadata: (${categories.Other.length} tags)</strong><br>`;
+            categories.Other.slice(0, 5).forEach(([key, value]) => {
+                let valStr = String(value);
+                if (valStr.length > 40) valStr = valStr.substring(0, 40) + '...';
+                metadataHTML += `<span class="meta-dim">• ${key}: ${valStr}</span><br>`;
+            });
+            if (categories.Other.length > 5) {
+                metadataHTML += `<span class="meta-dim">... and ${categories.Other.length - 5} more</span><br>`;
+            }
+        }
+    }
+
+    metadataHTML += '</div>';
+
+    // AFTER Section
+    metadataHTML += '<div class="metadata-after"><strong>✓ AFTER (STRIPPED)</strong><br><br>';
+    metadataHTML += '<strong class="meta-success">✓ Metadata Removal Summary:</strong><br>';
+
+    if (after && after.file_size) {
+        const afterSizeKB = (after.file_size / 1024).toFixed(1);
+        const diffKB = (bytes_removed / 1024).toFixed(1);
+        const percentReduction = ((bytes_removed / before.file_size) * 100).toFixed(1);
+        metadataHTML += `<span class="meta-label">New Size</span> ${afterSizeKB} KB <span class="meta-success">(-${diffKB} KB, -${percentReduction}%)</span><br>`;
+    }
+    metadataHTML += `<span class="meta-label">EXIF Tags</span> ${after ? (after.exif_count || 0) : 0} <span class="meta-success">(removed ${exif_removed} tags)</span><br>`;
+
+    // List removed components
+    const removedItems = [];
+    if (before.has_icc_profile && (!after || !after.has_icc_profile)) {
+        removedItems.push('ICC Color Profile');
+    }
+    if (before.has_gps) {
+        removedItems.push('GPS Location Data');
+    }
+    if (before.has_thumbnail) {
+        removedItems.push('Embedded Thumbnail');
+    }
+
+    // Check categories
+    if (before.raw_tags) {
+        const exifTags = Object.entries(before.raw_tags).filter(([key]) =>
+            !key.startsWith('File:') && !key.startsWith('SourceFile')
+        );
+        if (exifTags.some(([key]) => key.includes('GPS') || key.includes('Location'))) {
+            if (!removedItems.includes('GPS Location Data')) removedItems.push('GPS Coordinates');
+        }
+        if (exifTags.some(([key]) => key.includes('Artist') || key.includes('Copyright') || key.includes('Owner'))) {
+            removedItems.push('Personal Information');
+        }
+        if (exifTags.some(([key]) => key.includes('Make') || key.includes('Model') || key.includes('Serial'))) {
+            removedItems.push('Camera Information');
+        }
+        if (exifTags.some(([key]) => key.includes('Software') || key.includes('Creator') || key.includes('Tool'))) {
+            removedItems.push('Software Information');
+        }
+        if (exifTags.some(([key]) => key.includes('Date') || key.includes('Time'))) {
+            removedItems.push('Timestamps');
+        }
+    }
+
+    if (removedItems.length > 0) {
+        metadataHTML += '<br><strong class="meta-success">Removed Components:</strong><br>';
+        removedItems.forEach(item => {
+            metadataHTML += `<span class="meta-success">✓ ${item}</span><br>`;
+        });
+    }
+
+    metadataHTML += `<br><span class="meta-label">Final Status</span> <span class="meta-success">✓ CLEAN - Safe to share</span><br>`;
+    metadataHTML += '</div>';
 
     metadataHTML += '</div>';
     metadataCard.innerHTML = metadataHTML;
