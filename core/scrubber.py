@@ -28,8 +28,8 @@ class ImageScrubber:
             if self.verbose:
                 print(f"[*] scrubbing: {os.path.basename(input_path)}")
 
-            original_metadata = self._extract_metadata(input_path)
-            original_size = os.path.getsize(input_path)
+            # Extract metadata BEFORE cleaning
+            before_metadata = self._extract_metadata(input_path)
 
             # step 1: PIL complete rewrite (gets most metadata)
             self._pil_scrub(input_path, output_path)
@@ -43,8 +43,12 @@ class ImageScrubber:
             # step 4: re-encode to ensure clean state
             self._reencode_image(output_path)
 
-            new_size = os.path.getsize(output_path)
-            bytes_removed = original_size - new_size
+            # Extract metadata AFTER cleaning
+            after_metadata = self._extract_metadata(output_path)
+
+            # Calculate changes
+            bytes_removed = before_metadata['file_size'] - after_metadata['file_size']
+            exif_removed = before_metadata['exif_count'] - after_metadata['exif_count']
 
             self.stats['processed'] += 1
             self.stats['bytes_removed'] += bytes_removed
@@ -53,9 +57,13 @@ class ImageScrubber:
                 print(f"[+] removed {bytes_removed} bytes of metadata")
 
             return True, {
-                'original_metadata': original_metadata,
+                'before': before_metadata,
+                'after': after_metadata,
                 'bytes_removed': bytes_removed,
-                'success': True
+                'exif_removed': exif_removed,
+                'success': True,
+                # Keep old format for backward compatibility
+                'original_metadata': before_metadata['raw_tags']
             }
 
         except Exception as e:
@@ -150,11 +158,32 @@ class ImageScrubber:
                 print(f"[!] Warning: Could not re-encode image: {e}")
 
     def _extract_metadata(self, file_path):
-        """extract metadata for logging"""
-        metadata = {}
+        """extract detailed metadata for logging"""
+        metadata = {
+            'raw_tags': {},
+            'format': 'Unknown',
+            'dimensions': (0, 0),
+            'file_size': 0,
+            'exif_count': 0,
+            'has_icc_profile': False,
+            'has_gps': False,
+            'has_thumbnail': False
+        }
 
         try:
-            # try exiftool first
+            # Get file size
+            metadata['file_size'] = os.path.getsize(file_path)
+
+            # Get image info using PIL
+            with Image.open(file_path) as img:
+                metadata['format'] = img.format or 'Unknown'
+                metadata['dimensions'] = img.size
+
+                # Check for ICC profile
+                if 'icc_profile' in img.info:
+                    metadata['has_icc_profile'] = True
+
+            # Try exiftool for detailed tags
             cmd = ['exiftool', '-json', '-a', '-G', file_path]
             result = subprocess.run(cmd, stdout=subprocess.PIPE, timeout=10, text=True,
                                   stderr=subprocess.DEVNULL)
@@ -162,17 +191,24 @@ class ImageScrubber:
             if result.returncode == 0:
                 data = json.loads(result.stdout)
                 if data:
-                    metadata = data[0]
-        except (FileNotFoundError, subprocess.TimeoutExpired, json.JSONDecodeError):
-            pass
+                    raw_data = data[0]
+                    metadata['raw_tags'] = raw_data
 
-        # fallback to PIL
-        try:
-            with Image.open(file_path) as img:
-                if hasattr(img, '_getexif') and img._getexif():
-                    metadata['EXIF'] = 'Present'
-                if img.info:
-                    metadata['Info'] = img.info
+                    # Count EXIF fields (exclude basic file info)
+                    exif_fields = {k: v for k, v in raw_data.items()
+                                  if not k.startswith('File:') and
+                                  not k.startswith('SourceFile')}
+                    metadata['exif_count'] = len(exif_fields)
+
+                    # Check for GPS data
+                    metadata['has_gps'] = any('GPS' in k for k in raw_data.keys())
+
+                    # Check for thumbnail
+                    metadata['has_thumbnail'] = any('Thumbnail' in k for k in raw_data.keys())
+
+        except (FileNotFoundError, subprocess.TimeoutExpired, json.JSONDecodeError):
+            # exiftool not available, use PIL only
+            pass
         except (IOError, OSError):
             pass
 
